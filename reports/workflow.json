@@ -1,0 +1,60 @@
+{
+  "network": {
+    "attempts": 3,
+    "failures": 0,
+    "statuses": {
+      "200": 3
+    },
+    "successful_ms": {
+      "body": {
+        "n": 3,
+        "p50": 0.018921,
+        "p95": 0.0196,
+        "p99": 0.0196
+      },
+      "headers": {
+        "n": 3,
+        "p50": 12.189209,
+        "p95": 12.540319,
+        "p99": 12.540319
+      },
+      "processing": {
+        "n": 3,
+        "p50": 0.003963,
+        "p95": 0.004405,
+        "p99": 0.004405
+      },
+      "queue": {
+        "n": 3,
+        "p50": 0.003039,
+        "p95": 239.589936,
+        "p99": 239.589936
+      },
+      "service": {
+        "n": 3,
+        "p50": 12.212093000000001,
+        "p95": 12.552224,
+        "p99": 12.552224
+      },
+      "total": {
+        "n": 3,
+        "p50": 12.556427,
+        "p95": 251.80636099999998,
+        "p99": 251.80636099999998
+      }
+    }
+  },
+  "quote": {
+    "expires_unix_ms": 1793543675985,
+    "product": {
+      "available": true,
+      "currency": "TWD",
+      "id": "demo",
+      "price_minor": 9900
+    },
+    "requires_user_confirmation": true
+  },
+  "schedule_lateness_ms": 1.896605,
+  "state": "awaiting_user_confirmation",
+  "workflow_ms": 263.73756599999996
+}
