@@ -88,7 +88,11 @@ impl Api {
             .pool_max_idle_per_host(2)
             .tcp_nodelay(true)
             .redirect(Policy::none())
-            .user_agent("shoppee-core/0.1 authorized-diagnostics")
+            .user_agent(concat!(
+                "shoppee-core/",
+                env!("CARGO_PKG_VERSION"),
+                " authorized-diagnostics"
+            ))
             .build()?;
         Ok(Self {
             client,

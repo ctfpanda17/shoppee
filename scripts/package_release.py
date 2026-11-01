@@ -23,7 +23,13 @@ with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
     command = ".\\shoppee-core.exe" if platform.startswith("windows") else "./shoppee-core"
     quickstart = f"""shoppee-core v{version} ({platform})
 
-This is a command-line application. Open PowerShell/Terminal in this folder.
+Double-click shoppee-core.exe (Windows) or run the command below to open the local UI.
+Keep the terminal window open while the app is running.
+
+Local graphical interface:
+  {command} ui
+
+This app also provides command-line tools. Open PowerShell/Terminal in this folder.
 For macOS/Linux, run chmod +x shoppee-core if necessary.
 
 Terminal 1 - local mock:
@@ -35,16 +41,18 @@ Benchmark while the mock is running:
 Help:
   {command} --help
 
-curl 7.70+ is needed for bench/probe. run/mock do not require curl.
+curl 7.70+ is needed for bench/probe. ui/run/mock do not require curl.
 Windows: Windows 10/11 x64; the Microsoft Visual C++ runtime may be required.
 Linux: x86_64, glibc 2.35+ (built on Ubuntu 22.04).
 macOS: Apple Silicon, macOS 11+; the binary is not notarized.
 
-No live Shopee integration. No order/payment API. The workflow stops at user
-confirmation and only supports the documented mock/authorized JSON contract.
+Shopee mode opens the official product page at the scheduled time for manual
+purchase. No automatic Shopee order/payment API is connected. Mock mode tests
+local monitoring and quote confirmation; mock prices are not real product prices.
 See README.md and RELEASE_NOTES.md for details and limits.
 """
     z.writestr("QUICKSTART.txt", quickstart)
     if platform.startswith("windows"):
+        z.writestr("START_UI.cmd", "@echo off\r\ncd /d \"%~dp0\"\r\nshoppee-core.exe ui\r\nif errorlevel 1 pause\r\n")
         z.writestr("HELP.cmd", "@echo off\r\ncd /d \"%~dp0\"\r\nshoppee-core.exe --help\r\npause\r\n")
 print(archive.name)

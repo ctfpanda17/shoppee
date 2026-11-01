@@ -17,10 +17,17 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 )]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 #[derive(Subcommand)]
 enum Commands {
+    /// Open the local graphical interface in your default browser.
+    Ui {
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+        #[arg(long)]
+        no_open: bool,
+    },
     /// Local-only simulator with deterministic release and fault injection.
     Mock {
         #[arg(long, default_value = "127.0.0.1:8787")]
@@ -101,7 +108,11 @@ fn cold_summary(v: &[shoppee_core::probe::ColdSample]) -> serde_json::Value {
         "total_ms":percentiles(v.iter().map(|s|s.total_ms))})
 }
 async fn run() -> Result<()> {
-    match Cli::parse().command {
+    match Cli::parse().command.unwrap_or(Commands::Ui {
+        port: 0,
+        no_open: false,
+    }) {
+        Commands::Ui { port, no_open } => shoppee_core::ui::serve(port, !no_open).await?,
         Commands::Mock {
             bind,
             release_after_ms,

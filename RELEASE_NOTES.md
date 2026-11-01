@@ -1,27 +1,27 @@
-# shoppee-core v0.1.0
+# shoppee-core v0.2.0 — 本機商品任務 UI
 
-首次發布 Rust 核心與本機模擬驗證版本。
+## 新增功能
 
-- Tokio 非同步網路、共享 reqwest 連線池與 TCP_NODELAY。
-- 商品狀態監測、開賣時間排程、喚醒延遲量測及取消。
-- 共用節流器、Retry-After、有限次數退避重試與 timeout。
-- 非約束報價的價格、幣別、有效期及使用者確認檢查。
-- Axum 本機模擬伺服器，支援開賣時間、延遲、429、503 注入。
-- DNS、TCP、TLS、HTTP 與 JSON 處理時間的 P50/P95/P99；保留原始數據。
+- 不帶參數啟動程式即可開啟瀏覽器 UI，單一 Rust 執行檔內嵌所有介面資源。
+- 貼上台灣蝦皮完整商品網址並解析商店／商品編號，移除追蹤參數。
+- 「蝦皮商品頁」模式：立即或定時開啟官方商品頁，由使用者在蝦皮完成購買。
+- 「本機模擬」模式：自動管理 mock，監測開賣、檢查預算、取得報價並等待模擬確認。
+- 本地時間排程、倒數、停止任務、狀態、HTTP P50/P95/P99、紀錄與 JSON 匯出。
+- 本機工作階段驗證、Host／Origin 限制、CSP、請求大小及設定範圍檢查。
+- Windows 包含 START_UI.cmd 與 HELP.cmd；舊有命令列工具保留。
 
-## 下載與執行
+## 使用
 
-- Windows x64：`shoppee-core-v0.1.0-windows-x86_64.zip`
-- Linux x64：`shoppee-core-v0.1.0-linux-x86_64.zip`（glibc 2.35+）
-- macOS Apple Silicon：`shoppee-core-v0.1.0-macos-arm64.zip`（未公證）
-- `SHA256SUMS.txt`：下載包 SHA-256 校驗碼。
+Windows 解壓縮後雙擊 `shoppee-core.exe` 或 `START_UI.cmd`。macOS／Linux 執行 `./shoppee-core ui`。保留終端機視窗；關閉視窗或 Ctrl+C 可結束服務。
 
-解壓縮後在 PowerShell／終端機執行，參閱包內 `QUICKSTART.txt`。這是命令列程式，沒有圖形介面。Windows 可能需要 Microsoft Visual C++ Runtime。bench/probe 需要 curl 7.70+；run/mock 不需要 curl。
+支援網址 `https://shopee.tw/product/123/456` 與 `https://shopee.tw/商品名稱-i.123.456`。短網址請先開啟商品後複製完整網址。啟動時間使用電腦本地時區，設定只保留在執行中的程式內。
 
-## 驗證與範圍
+## 明確限制
 
-核心版本的 GitHub CI 已通過 16 項 integration tests、格式、Clippy 及 release build；本次發布工作流程另外建置三種目標平台、在可原生執行的 runner 上執行 --version／--help，並在 Linux 重跑測試。
+**未接入可供本專案使用的蝦皮買家下單授權介面，因此沒有「貼網址就自動下單」能力，也沒有真實付款端點。** 蝦皮模式不會讀取庫存／價格、選擇規格、加入購物車或送出訂單；到點只開啟官方商品頁。UI 不要求帳密或 Cookie。正式 API 整合仍需平台核准的買家交易介面與對應授權文件。
 
-現有效能報告使用 700 筆本機請求；P99 存在明顯抖動，不能推論蝦皮尖峰延遲、搶購成功率或最佳 ISP／地區。原始數據與限制見原始碼的 reports/ANALYSIS.md。
+模擬報價固定 NT$99.00，與真實商品無關；模擬確認不會建立真實交易。倒數依本機時鐘與 OS 排程，不提供硬即時保證。取消只適用於待派發工作，已開啟的瀏覽器頁面不會被撤回。
 
-尚未接入蝦皮正式 API，沒有下單／付款端點。流程停止在等待使用者確認；正式整合必須使用平台授權介面，遵守配額與安全限制。
+三個下載包為 Windows x64、Linux x64（glibc 2.35+）、macOS Apple Silicon；macOS 版本未公證。SHA256SUMS.txt 提供下載包校驗碼。UI 不需要 Node.js／Python；bench/probe 另需 curl 7.70+。
+
+原始碼附核心與 UI integration tests。reports/ANALYSIS.md 與既有 JSON 為 v0.1.0 的歷史基準，不能當作 UI 或真實蝦皮的量測結果。

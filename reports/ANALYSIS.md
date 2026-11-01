@@ -1,5 +1,7 @@
 # 本機實測與瓶頸分析
 
+> 本報告為 v0.1.0 核心的歷史基準，不代表 v0.2.0 UI 的效能測試。v0.2.0 的 UI、網址解析及模式限制另以 integration tests 驗證。
+
 2026-11-01，Linux x86_64，rustc 1.99.1 (58cf8f9c3 2026-10-13)，release opt-level 3、LTO disabled、codegen-units=1。每個組別 100 筆，僅連線 127.0.0.1，無蝦皮流量。原始資料與環境資訊在同目錄 JSON 檔案。
 
 ## 分位數（毫秒）
