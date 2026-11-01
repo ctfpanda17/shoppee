@@ -1,0 +1,93 @@
+name: Release
+on:
+  push:
+    branches:
+      - 'release/v*'
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: windows-x86_64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+      - name: Validate source
+        if: runner.os == 'Linux'
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --all-targets
+      - name: Build release binary
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Smoke test native binary
+        if: runner.os != 'macOS' || runner.arch == 'ARM64'
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          executable="target/$BUILD_TARGET/release/shoppee-core"
+          if [ "$RUNNER_OS" = "Windows" ]; then executable="$executable.exe"; fi
+          "$executable" --version
+          "$executable" --help
+      - name: Package
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_PLATFORM: ${{ matrix.platform }}
+        run: python scripts/package_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish verified release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME##*/}"
+          python - "$tag" <<'PY'
+          import hashlib, pathlib, sys, tomllib
+          version = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['package']['version']
+          assert sys.argv[1] == 'v' + version, 'Release branch must match Cargo version'
+          files = sorted(pathlib.Path('dist').glob('*.zip'))
+          expected = {f'shoppee-core-v{version}-{p}.zip' for p in ('linux-x86_64','windows-x86_64','macos-arm64')}
+          assert {p.name for p in files} == expected, 'Missing or unexpected release assets'
+          pathlib.Path('dist/SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in files))
+          PY
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "shoppee-core $tag" --notes-file RELEASE_NOTES.md --draft
+          gh release edit "$tag" --draft=false --latest
