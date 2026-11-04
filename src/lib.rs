@@ -1,3 +1,4 @@
+pub mod browser_bridge;
 pub mod client;
 pub mod metrics;
 pub mod mock;

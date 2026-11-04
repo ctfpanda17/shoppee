@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Shoppee Local Companion",
+  "version": "0.3.0",
+  "description": "Connect your local Shoppee UI to visible product controls; stops before order submission.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://shopee.tw/*"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [
+    {"matches": ["http://127.0.0.1/*"], "js": ["bridge.js"], "run_at": "document_idle"},
+    {"matches": ["https://shopee.tw/*"], "js": ["dom.js", "product.js"], "run_at": "document_idle"}
+  ]
+}

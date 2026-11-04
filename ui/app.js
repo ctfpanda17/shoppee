@@ -7,9 +7,9 @@ try {
   else token = sessionStorage.getItem('shoppee-session') || '';
 } catch { /* A valid URL token still works when browser storage is blocked. */ }
 history.replaceState(null, '', location.pathname);
-let mode = 'shopee', snapshot = null, online = false, polling = false, parsedUrl = '', lastLog = '', submitting = false;
-const phases = {idle:'尚未開始',scheduled:'等待啟動',monitoring:'監測中',preparing:'取得模擬報價',opening:'開啟商品頁',opened:'已開啟官方頁面',awaiting_confirmation:'等待確認',simulation_confirmed:'模擬完成',cancelled:'已停止',failed:'執行失敗'};
-const active = () => snapshot && ['scheduled','monitoring','preparing','opening'].includes(snapshot.job.phase);
+let mode = 'browser', snapshot = null, online = false, polling = false, parsedUrl = '', lastLog = '', submitting = false;
+const phases = {browser_inspecting:'讀取真實規格',browser_checkout:'選規格並前往結帳',catalog_ready:'請選擇規格',checkout_ready:'已前往結帳',idle:'尚未開始',scheduled:'等待啟動',monitoring:'監測中',preparing:'取得模擬報價',opening:'開啟商品頁',opened:'已開啟官方頁面',awaiting_confirmation:'等待確認',simulation_confirmed:'模擬完成',cancelled:'已停止',failed:'執行失敗'};
+const active = () => snapshot && ['scheduled','monitoring','preparing','opening','browser_inspecting','browser_checkout'].includes(snapshot.job.phase);
 async function api(path, data) {
   const opts = {headers:{'x-session-token':token}};
   if (data !== undefined) { opts.method='POST'; opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(data); }
@@ -22,12 +22,15 @@ async function api(path, data) {
 function error(message) { $('form-error').textContent=message; $('form-error').hidden=!message; }
 function setMode(value) {
   mode=value;
+  $('mode-browser').classList.toggle('selected',value==='browser'); $('mode-browser').setAttribute('aria-pressed',String(value==='browser')); $('browser-settings').hidden=value!=='browser';
   $('mode-shopee').classList.toggle('selected',value==='shopee'); $('mode-mock').classList.toggle('selected',value==='mock');
   $('mode-shopee').setAttribute('aria-pressed',String(value==='shopee')); $('mode-mock').setAttribute('aria-pressed',String(value==='mock'));
   $('mock-settings').hidden=value!=='mock';
-  $('start-label').textContent=value==='mock'?'開始本機模擬':'建立開啟任務';
-  $('mode-description').textContent=value==='mock'?'預算會用於檢查模擬報價；所有監測請求都只送往本機。':'預算僅用於任務備註；正式價格與總額請在蝦皮確認。';
-  $('form-footnote').textContent=value==='mock'?'模擬商品不代表真實商品，不會建立訂單或付款。':'不會自動下單或付款，不需要輸入蝦皮帳密。';
+  for(const input of $('mock-settings').querySelectorAll('input'))input.disabled=value!=='mock';
+  for(const input of $('browser-settings').querySelectorAll('input,select'))input.disabled=value!=='browser';
+  $('start-label').textContent=value==='mock'?'開始本機模擬':value==='browser'?'選規格並自動前往結帳':'建立開啟任務';
+  $('mode-description').textContent=value==='browser'?'預算限制商品小計（單價 × 數量），不含運費；含運總額請在蝦皮結帳確認。':value==='mock'?'預算會用於檢查模擬報價；所有監測請求都只送往本機。':'預算僅用於任務備註；正式價格與總額請在蝦皮確認。';
+  $('form-footnote').textContent=value==='browser'?'會操作登入中的蝦皮商品分頁；最終下單與付款由你確認。':value==='mock'?'模擬商品不代表真實商品，不會建立訂單或付款。':'不會自動下單或付款，不需要輸入蝦皮帳密。';
   error('');
 }
 async function parseUrl() {
@@ -42,6 +45,7 @@ async function parseUrl() {
     return product;
   } catch (e) { $('product-result').hidden=true; parsedUrl=''; error(e.message); return null; }
 }
+$('mode-browser').addEventListener('click',()=>setMode('browser'));
 $('mode-shopee').addEventListener('click',()=>setMode('shopee'));
 $('mode-mock').addEventListener('click',()=>setMode('mock'));
 $('parse-button').addEventListener('click',parseUrl);
@@ -55,7 +59,10 @@ $('task-form').addEventListener('submit',async event=>{
     const date=$('schedule').value;
     const at=date?new Date(date).getTime():null;
     if (date && !Number.isFinite(at)) throw new Error('啟動時間格式不正確。');
-    await api('/api/start',{url:$('product-url').value.trim(),mode,max_price_minor:price,at_unix_ms:at,interval_ms:Number($('interval').value),budget_secs:Number($('budget').value),mock_release_after_ms:Math.round(Number($('release-delay').value)*1000)});
+    if(mode==='browser'&&!bridgeConnected)throw new Error('請先安裝擴充功能並連接瀏覽器。');
+    const selections=[...document.querySelectorAll('#variant-fields select')].map(select=>({group:select.dataset.group,option:select.value}));
+    if(mode==='browser'&&selections.some(s=>!s.option))throw new Error('請選擇所有商品規格。');
+    await api('/api/start',{quantity:Number($('quantity').value),selections,url:$('product-url').value.trim(),mode,max_price_minor:price,at_unix_ms:at,interval_ms:Number($('interval').value),budget_secs:Number($('budget').value),mock_release_after_ms:Math.round(Number($('release-delay').value)*1000)});
     await poll();
   } catch(e) { error(e.message); }
   finally { submitting=false; $('start-button').disabled=!online || active(); }
@@ -95,13 +102,13 @@ function renderClock() {
   }
 }
 function render(data) {
-  snapshot=data; const j=data.job,run=active(),done=['opened','awaiting_confirmation','simulation_confirmed'].includes(j.phase);
+  snapshot=data; const j=data.job,run=active(),done=['opened','awaiting_confirmation','simulation_confirmed','checkout_ready'].includes(j.phase);
   $('version').textContent=`v${data.version}`;
   $('status-label').textContent=phases[j.phase]||j.phase;
   $('status-pill').className='status-pill'+(run?' running':done?' success':j.phase==='failed'?' failed':'');
   $('settings').disabled=!!run;$('start-button').disabled=!online||!!run||submitting;$('stop-button').disabled=!online||!run;
   if(j.mode && run) setMode(j.mode);
-  $('progress-mid').textContent=j.mode==='mock'?'監測商品':'等待啟動';$('progress-end').textContent=j.mode==='mock'?'確認模擬報價':'開啟商品頁';
+  $('progress-mid').textContent=j.mode==='mock'?'監測商品':j.mode==='browser'?'選規格與檢查':'等待啟動';$('progress-end').textContent=j.mode==='mock'?'確認模擬報價':j.mode==='browser'?'結帳待確認':'開啟商品頁';
   $('progress-1').className='progress-step'+(j.phase!=='idle'?' done':'');
   $('progress-2').className='progress-step'+(run?' current':done?' done':'');
   $('progress-3').className='progress-step'+(done?' done':'');
@@ -118,6 +125,7 @@ function render(data) {
       const row=document.createElement('div');row.className='log-row';const time=document.createElement('time');time.textContent=new Date(entry.at_unix_ms).toLocaleTimeString('zh-TW',{hour12:false});const dot=document.createElement('span');dot.className='log-dot';const message=document.createElement('span');message.textContent=entry.message;row.append(time,dot,message);$('log-list').appendChild(row);
     }}
   }
+  renderCatalog(j.browser_catalog);
   renderClock();
 }
 async function poll() {
@@ -126,6 +134,55 @@ async function poll() {
   catch(e){online=false;$('connection-text').textContent='連線中斷';$('connection-dot').classList.add('offline');$('start-button').disabled=true;$('stop-button').disabled=true;$('confirm-button').disabled=true;error(e.message);}
   finally{polling=false;}
 }
+
+const bridgeNonce=[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,'0')).join('');document.documentElement.dataset.shoppeeBridgeNonce=bridgeNonce;
+let bridgeConnected=false, commandLoopRunning=false, catalogKey='', pendingResults=new Map();
+$('connect-browser').addEventListener('click',()=>{
+  $('browser-status').textContent='等待擴充功能回應…';
+  setTimeout(()=>{if(!bridgeConnected)$('browser-status').textContent='尚未偵測到擴充功能；請安裝後重新整理操作頁。';},1500);
+});
+$('read-browser').addEventListener('click',async()=>{
+  error('');try{
+    if(!bridgeConnected)throw new Error('請先安裝擴充功能並按「連接瀏覽器」。');
+    await api('/api/browser/inspect',{url:$('product-url').value.trim()});await poll();
+  }catch(e){error(e.message);}
+});
+function renderCatalog(catalog){
+  const key=JSON.stringify(catalog);
+  if(key===catalogKey)return;catalogKey=key;
+  $('variant-fields').replaceChildren();
+  if(!catalog){$('catalog-info').textContent='讀取後才會顯示真實規格，不會根據網址猜測。';return;}
+  $('catalog-info').textContent=catalog.title+(catalog.shipping_blocked?'；目前配送不可用，請先在蝦皮處理後重新讀取。':'；資料為最近一次讀取結果，執行前會再檢查。');
+  for(const group of catalog.groups){
+    const label=document.createElement('label'),select=document.createElement('select');
+    select.id='variant-'+$('variant-fields').childElementCount;select.dataset.group=group.name;label.htmlFor=select.id;label.textContent=group.name;
+    const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='請選擇規格';select.appendChild(placeholder);
+    for(const item of group.options){const option=document.createElement('option');option.value=item.label;option.textContent=item.label+(item.disabled?'（目前停用）':'');option.disabled=item.disabled;select.appendChild(option);}
+    $('variant-fields').append(label,select);
+  }
+}
+window.addEventListener('message',event=>{
+  const data=event.data;
+  if(event.source!==window||event.origin!==location.origin||data?.channel!=='SHOPPEE_COMPANION_V1'||data.nonce!==bridgeNonce)return;
+  if(data.type==='READY'&&data.connected){bridgeConnected=true;$('browser-status').textContent='已連接擴充功能';browserCommandLoop();}
+  if(data.type==='RESULT'){const resolve=pendingResults.get(data.command_id);if(resolve){pendingResults.delete(data.command_id);resolve(data);}}
+  if(data.type==='ERROR')error(data.error||'擴充功能錯誤。');
+});
+async function browserCommandLoop(){
+  if(commandLoopRunning)return;commandLoopRunning=true;
+  try{while(bridgeConnected){
+    const {command}=await api('/api/browser/next',{});if(!command)continue;
+    const result=await new Promise(resolve=>{
+      const timer=setTimeout(()=>{pendingResults.delete(command.id);resolve({error:'擴充功能操作逾時，請檢查商品分頁。'});},Math.max(1,command.expires_unix_ms-Date.now()));
+      pendingResults.set(command.id,data=>{clearTimeout(timer);resolve(data);});
+      window.postMessage({channel:'SHOPPEE_UI_V1',type:'COMMAND',nonce:bridgeNonce,command},location.origin);
+    });
+    try{await api('/api/browser/report',{command_id:command.id,outcome:result.outcome||null,error:result.error||null});}catch(e){error(e.message);}
+    await poll();
+  }}catch(e){bridgeConnected=false;$('browser-status').textContent='連線中斷，請重新連接';error(e.message);}finally{commandLoopRunning=false;}
+}
+
+setMode('browser');
 if(!token){error('此頁缺少工作階段。請重新啟動程式，使用程式開啟的完整本機網址。');$('connection-text').textContent='缺少工作階段';$('connection-dot').classList.add('offline');$('start-button').disabled=true;}
 else{poll();setInterval(poll,1000);}
 setInterval(renderClock,200);

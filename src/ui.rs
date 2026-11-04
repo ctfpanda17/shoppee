@@ -1,4 +1,5 @@
 use crate::{
+    browser_bridge::{Broker, Catalog, Kind, Report, Selection},
     client::{Api, Config},
     metrics::{summarize, Sample},
     mock::{self, MockConfig, MockState},
@@ -27,6 +28,7 @@ pub struct App {
     origin: Arc<str>,
     token: Arc<str>,
     opener: Opener,
+    broker: Broker,
 }
 struct Inner {
     job: Snapshot,
@@ -45,6 +47,7 @@ pub struct Snapshot {
     pub logs: VecDeque<Log>,
     pub samples: Vec<Sample>,
     pub request_count: usize,
+    pub browser_catalog: Option<Catalog>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct Log {
@@ -56,6 +59,7 @@ pub struct Log {
 pub enum Mode {
     Shopee,
     Mock,
+    Browser,
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,6 +71,13 @@ pub struct StartRequest {
     pub interval_ms: u64,
     pub budget_secs: u64,
     pub mock_release_after_ms: u64,
+    #[serde(default)]
+    pub selections: Vec<Selection>,
+    #[serde(default = "one")]
+    pub quantity: u32,
+}
+fn one() -> u32 {
+    1
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -106,6 +117,7 @@ impl App {
             origin: origin.into(),
             token: token.into(),
             opener: Arc::new(opener),
+            broker: Broker::default(),
         }
     }
     async fn update(&self, id: u64, phase: &str, message: &str) {
@@ -137,13 +149,22 @@ impl App {
         }
     }
     pub async fn shutdown(&self) {
+        self.broker.cancel().await;
         if let Some(task) = self.inner.lock().await.task.take() {
             task.abort();
         }
     }
 }
 fn active(phase: &str) -> bool {
-    matches!(phase, "scheduled" | "monitoring" | "preparing" | "opening")
+    matches!(
+        phase,
+        "scheduled"
+            | "monitoring"
+            | "preparing"
+            | "opening"
+            | "browser_inspecting"
+            | "browser_checkout"
+    )
 }
 fn same_token(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0
@@ -210,7 +231,7 @@ async fn js() -> impl IntoResponse {
 async fn state(State(app): State<App>) -> Json<Value> {
     let job = app.inner.lock().await.job.clone();
     Json(
-        json!({"version":env!("CARGO_PKG_VERSION"),"capabilities":{"shopee_purchase":false,"shopee_page_open":true,"mock":true},"metrics":summarize(&job.samples),"job":job}),
+        json!({"version":env!("CARGO_PKG_VERSION"),"capabilities":{"shopee_purchase":false,"shopee_page_open":true,"browser_checkout":true,"mock":true},"metrics":summarize(&job.samples),"job":job}),
     )
 }
 async fn parse(Json(req): Json<ParseRequest>) -> std::result::Result<Json<ShopeeProduct>, UiError> {
@@ -257,6 +278,10 @@ async fn start(
     if let Some(task) = inner.task.take() {
         task.abort();
     }
+    let catalog = inner.job.browser_catalog.clone();
+    if req.mode == Mode::Browser {
+        ensure_browser_start(&req, &product, catalog.as_ref()).map_err(bad)?;
+    }
     let id = inner.next_id;
     inner.next_id += 1;
     inner.job = Snapshot {
@@ -265,6 +290,7 @@ async fn start(
         mode: Some(req.mode),
         product: Some(product.clone()),
         target_unix_ms: req.at_unix_ms,
+        browser_catalog: catalog,
         ..Default::default()
     };
     let task_app = app.clone();
@@ -299,6 +325,8 @@ async fn cancel(
         at_unix_ms: schedule::unix_ms().unwrap_or_default(),
         message: "使用者已停止工作".into(),
     });
+    drop(inner);
+    app.broker.cancel().await;
     Ok(Json(json!({"cancelled":true})))
 }
 async fn confirm(
@@ -340,10 +368,10 @@ async fn execute(app: App, id: u64, req: StartRequest, product: ShopeeProduct) -
     app.update(
         id,
         "scheduled",
-        if req.mode == Mode::Shopee {
-            "已排定開啟官方商品頁；未啟用自動下單"
-        } else {
-            "已排定本機模擬；不會連線蝦皮"
+        match req.mode {
+            Mode::Shopee => "已排定開啟官方商品頁；未啟用自動下單",
+            Mode::Mock => "已排定本機模擬；不會連線蝦皮",
+            Mode::Browser => "已排定瀏覽器規格選取與前往結帳；不送出訂單或付款",
         },
     )
     .await;
@@ -359,6 +387,38 @@ async fn execute(app: App, id: u64, req: StartRequest, product: ShopeeProduct) -
         }
         inner.job.schedule_lateness_ms = Some(late);
     }
+    if req.mode == Mode::Browser {
+        app.update(
+            id,
+            "browser_checkout",
+            "正在選取規格、檢查商品小計與配送；只前往結帳，不送出訂單",
+        )
+        .await;
+        let result = app
+            .broker
+            .dispatch(
+                Kind::Checkout,
+                product.canonical_url.clone(),
+                req.selections.clone(),
+                req.quantity,
+                req.max_price_minor,
+            )
+            .await?;
+        {
+            let mut inner = app.inner.lock().await;
+            if inner.job.id == id {
+                inner.job.browser_catalog = Some(result.catalog);
+            }
+        }
+        app.update(
+            id,
+            "checkout_ready",
+            "已前往蝦皮結帳頁，請核對含運總額並親自確認下單與付款",
+        )
+        .await;
+        return Ok(());
+    }
+
     if req.mode == Mode::Shopee {
         app.update(id, "opening", "正在開啟官方商品頁").await;
         let opener = app.opener.clone();
@@ -420,6 +480,91 @@ async fn execute(app: App, id: u64, req: StartRequest, product: ShopeeProduct) -
     .await;
     Ok(())
 }
+
+fn ensure_browser_start(
+    req: &StartRequest,
+    product: &ShopeeProduct,
+    catalog: Option<&Catalog>,
+) -> Result<()> {
+    ensure!((1..=100).contains(&req.quantity), "數量必須為 1–100");
+    let catalog = catalog.ok_or_else(|| anyhow::anyhow!("請先連接瀏覽器並讀取規格"))?;
+    catalog.validate(&product.canonical_url)?;
+    catalog.validate_selection(&req.selections)?;
+    ensure!(
+        !catalog.shipping_blocked,
+        "目前預設地址／門市不適用配送，請先在蝦皮處理後重新讀取規格"
+    );
+    Ok(())
+}
+async fn inspect_browser(
+    State(app): State<App>,
+    Json(req): Json<ParseRequest>,
+) -> std::result::Result<Json<Value>, UiError> {
+    let product = product_url::parse(&req.url).map_err(bad)?;
+    let mut inner = app.inner.lock().await;
+    if active(&inner.job.phase) {
+        return Err(UiError(StatusCode::CONFLICT, "請先停止目前的工作".into()));
+    }
+    let id = inner.next_id;
+    inner.next_id += 1;
+    if let Some(task) = inner.task.take() {
+        task.abort();
+    }
+    inner.job = Snapshot {
+        id,
+        phase: "browser_inspecting".into(),
+        mode: Some(Mode::Browser),
+        product: Some(product.clone()),
+        ..Default::default()
+    };
+    let task_app = app.clone();
+    inner.task = Some(tokio::spawn(async move {
+        let result = task_app
+            .broker
+            .dispatch(Kind::Inspect, product.canonical_url, vec![], 1, 0)
+            .await;
+        match result {
+            Ok(outcome) => {
+                let blocked = outcome.catalog.shipping_blocked;
+                {
+                    let mut inner = task_app.inner.lock().await;
+                    if inner.job.id != id {
+                        return;
+                    }
+                    inner.job.browser_catalog = Some(outcome.catalog);
+                }
+                task_app
+                    .update(
+                        id,
+                        "catalog_ready",
+                        if blocked {
+                            "已讀取真實規格，但目前預設地址／門市不適用配送"
+                        } else {
+                            "已讀取商品規格，請選擇規格、數量與商品小計上限"
+                        },
+                    )
+                    .await;
+            }
+            Err(e) => {
+                task_app
+                    .update(id, "failed", &format!("瀏覽器操作停止：{e}"))
+                    .await
+            }
+        }
+    }));
+    Ok(Json(json!({"id":id})))
+}
+async fn browser_next(State(app): State<App>) -> Json<Value> {
+    Json(json!({"command":app.broker.claim().await}))
+}
+async fn browser_report(
+    State(app): State<App>,
+    Json(report): Json<Report>,
+) -> std::result::Result<Json<Value>, UiError> {
+    app.broker.report(report).await.map_err(bad)?;
+    Ok(Json(json!({"accepted":true})))
+}
+
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/", get(index))
@@ -428,10 +573,13 @@ pub fn router(app: App) -> Router {
         .route("/api/state", get(state))
         .route("/api/export", get(state))
         .route("/api/parse", post(parse))
+        .route("/api/browser/inspect", post(inspect_browser))
+        .route("/api/browser/next", post(browser_next))
+        .route("/api/browser/report", post(browser_report))
         .route("/api/start", post(start))
         .route("/api/cancel", post(cancel))
         .route("/api/confirm", post(confirm))
-        .layer(DefaultBodyLimit::max(8192))
+        .layer(DefaultBodyLimit::max(32768))
         .layer(middleware::from_fn_with_state(app.clone(), guard))
         .with_state(app)
 }

@@ -259,3 +259,71 @@ async fn invalid_settings_and_price_caps_fail_safely() {
     assert!(s.opened.lock().unwrap().is_empty());
     s.app.shutdown().await;
 }
+
+fn browser_catalog(shipping_blocked: bool) -> Value {
+    json!({"canonical_url":"https://shopee.tw/product/123/456","title":"Browser product fixture","groups":[{"name":"規格","options":[{"label":"T118","disabled":false,"selected":true},{"label":"PS5","disabled":true,"selected":false}]}],"unit_price_minor":10000,"stock":3,"shipping_blocked":shipping_blocked})
+}
+async fn inspect_fixture(s: &Server, blocked: bool) {
+    s.post(
+        "/api/browser/inspect",
+        json!({"url":"https://shopee.tw/product/123/456"}),
+    )
+    .await
+    .error_for_status()
+    .unwrap();
+    let lease: Value = s
+        .post("/api/browser/next", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    s.post("/api/browser/report",json!({"command_id":lease["command"]["id"],"outcome":{"catalog":browser_catalog(blocked),"checkout_opened":false,"payment_sent":false},"error":null})).await.error_for_status().unwrap();
+    s.wait("catalog_ready").await;
+}
+#[tokio::test]
+async fn browser_ui_requires_catalog_and_stops_shipping_restrictions() {
+    let s = server().await;
+    let mut req = request("browser");
+    req["selections"] = json!([{"group":"規格","option":"T118"}]);
+    assert_eq!(
+        s.post("/api/start", req.clone()).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    inspect_fixture(&s, true).await;
+    let error: Value = s.post("/api/start", req).await.json().await.unwrap();
+    assert!(error["error"].as_str().unwrap().contains("配送"));
+    assert!(s.opened.lock().unwrap().is_empty());
+    s.app.shutdown().await;
+}
+#[tokio::test]
+async fn browser_ui_binds_real_options_and_finishes_at_checkout_without_payment() {
+    let s = server().await;
+    inspect_fixture(&s, false).await;
+    let mut req = request("browser");
+    req["selections"] = json!([{"group":"規格","option":"PS5"}]);
+    req["max_price_minor"] = json!(20000);
+    req["quantity"] = json!(2);
+    assert_eq!(
+        s.post("/api/start", req.clone()).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    req["selections"] = json!([{"group":"規格","option":"T118"}]);
+    s.post("/api/start", req).await.error_for_status().unwrap();
+    let lease: Value = s
+        .post("/api/browser/next", json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(lease["command"]["kind"], "checkout");
+    assert_eq!(lease["command"]["quantity"], 2);
+    s.post("/api/browser/report",json!({"command_id":lease["command"]["id"],"outcome":{"catalog":browser_catalog(false),"checkout_opened":true,"payment_sent":false},"error":null})).await.error_for_status().unwrap();
+    let state = s.wait("checkout_ready").await;
+    assert_eq!(
+        s.post("/api/confirm", json!({"id":state["job"]["id"]}))
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    s.app.shutdown().await;
+}

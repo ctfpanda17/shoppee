@@ -20,6 +20,9 @@ with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
     z.write(binary, name)
     for file in ("README.md", "LICENSE", "RELEASE_NOTES.md", "reports/ANALYSIS.md"):
         z.write(root / file, file)
+    for file in sorted((root / "companion-extension").rglob("*")):
+        if file.is_file():
+            z.write(file, file.relative_to(root).as_posix())
     command = ".\\shoppee-core.exe" if platform.startswith("windows") else "./shoppee-core"
     quickstart = f"""shoppee-core v{version} ({platform})
 
@@ -28,6 +31,15 @@ Keep the terminal window open while the app is running.
 
 Local graphical interface:
   {command} ui
+
+Browser SKU selection (Chrome / Edge):
+  1. Load the companion-extension folder at chrome://extensions or edge://extensions
+     using Developer mode > Load unpacked.
+  2. Open the local UI in that same browser. Click Connect browser / 連接瀏覽器.
+  3. Paste the product link, read real options, choose SKU and quantity, then start.
+  4. The task stops at checkout. Review shipping-inclusive total and place the order yourself.
+  If your default browser is Safari/Firefox, copy the full local URL printed by
+  the application into Chrome/Edge. Keep the local UI tab open during the task.
 
 This app also provides command-line tools. Open PowerShell/Terminal in this folder.
 For macOS/Linux, run chmod +x shoppee-core if necessary.
@@ -46,9 +58,11 @@ Windows: Windows 10/11 x64; the Microsoft Visual C++ runtime may be required.
 Linux: x86_64, glibc 2.35+ (built on Ubuntu 22.04).
 macOS: Apple Silicon, macOS 11+; the binary is not notarized.
 
-Shopee mode opens the official product page at the scheduled time for manual
-purchase. No automatic Shopee order/payment API is connected. Mock mode tests
-local monitoring and quote confirmation; mock prices are not real product prices.
+Browser mode uses rendered Shopee product controls to select options and go to
+checkout; shipping errors, disabled options and budget violations stop the task.
+No final order or payment is submitted. No passwords/cookies leave your browser.
+Page-only mode and local mock mode remain available. Mock prices are not real
+product prices. Existing performance reports remain the v0.1.0 baseline.
 See README.md and RELEASE_NOTES.md for details and limits.
 """
     z.writestr("QUICKSTART.txt", quickstart)
