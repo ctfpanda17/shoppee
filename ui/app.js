@@ -152,7 +152,8 @@ function renderCatalog(catalog){
   if(key===catalogKey)return;catalogKey=key;
   $('variant-fields').replaceChildren();
   if(!catalog){$('catalog-info').textContent='讀取後才會顯示真實規格，不會根據網址猜測。';return;}
-  $('catalog-info').textContent=catalog.title+(catalog.shipping_blocked?'；目前配送不可用，請先在蝦皮處理後重新讀取。':'；資料為最近一次讀取結果，執行前會再檢查。');
+  const price=Number.isSafeInteger(catalog.unit_price_minor)&&catalog.unit_price_minor>0?`；目前頁面單價 NT$${(catalog.unit_price_minor/100).toLocaleString('zh-TW')}`:'；尚未讀到明確單價，請在商品分頁選好規格並確認單一價格後重新讀取';
+  $('catalog-info').textContent=catalog.title+price+(catalog.shipping_blocked?'；目前配送不可用，請先在蝦皮處理後重新讀取。':'；資料為最近一次讀取結果，執行前會再檢查。');
   for(const group of catalog.groups){
     const label=document.createElement('label'),select=document.createElement('select');
     select.id='variant-'+$('variant-fields').childElementCount;select.dataset.group=group.name;label.htmlFor=select.id;label.textContent=group.name;

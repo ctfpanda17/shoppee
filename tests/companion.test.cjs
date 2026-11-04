@@ -40,11 +40,61 @@ test('local UI boots without randomUUID and blocks commands until extension conn
  Object.defineProperty(d.window.crypto,'randomUUID',{value:undefined});
  d.window.fetch=async()=>({ok:true,json:async()=>({version:'0.3.0',metrics:{successful_ms:{}},job:{phase:'idle',mode:null,target_unix_ms:null,quote:null,request_count:0,schedule_lateness_ms:null,logs:[],browser_catalog:null}})});
  try{
-  d.window.eval(source);await new Promise(resolve=>setImmediate(resolve));
+  d.window.eval(source+"\nwindow.testRenderCatalog=renderCatalog;");await new Promise(resolve=>setImmediate(resolve));
   assert.match(d.window.document.documentElement.dataset.shoppeeBridgeNonce,/^[a-f0-9]{32}$/);
   assert.equal(d.window.document.getElementById('start-label').textContent,'選規格並自動前往結帳');
   d.window.document.getElementById('read-browser').click();await new Promise(resolve=>setImmediate(resolve));
   assert.match(d.window.document.getElementById('form-error').textContent,/先安裝擴充功能/);
   assert.equal(d.window.location.hash,'');
+  d.window.testRenderCatalog({title:'Fixture',groups:[],unit_price_minor:263600,shipping_blocked:false});
+  assert.match(d.window.document.getElementById('catalog-info').textContent,/2,636/);
+  d.window.testRenderCatalog({title:'Fixture',groups:[],unit_price_minor:null,shipping_blocked:false});
+  assert.match(d.window.document.getElementById('catalog-info').textContent,/尚未讀到明確單價/);
  }finally{d.window.close();}
+});
+
+function readinessHarness(){
+ const d=fixture();d.window.eval(fs.readFileSync('companion-extension/readiness.js','utf8'));
+ let clock=0;const cmd={...command(),kind:'checkout',expires_unix_ms:60000},waitForReady=d.window.ShoppeeReadiness.wait;
+ const wait=(update=()=>{},overrides={})=>waitForReady(()=>{
+  update(d.window.document,clock);return d.window.ShoppeeDom.page(d.window.document,d.window.location.href);
+ },{...cmd,...overrides},()=>Number(d.window.document.querySelector('input').value),{now:()=>clock,sleep:async ms=>{clock+=ms;}});
+ return {d,wait,time:()=>clock};
+}
+test('waits for a delayed selected price beyond the former five-second limit',async()=>{
+ const h=readinessHarness();const c=await h.wait((doc,t)=>{
+  doc.querySelector('.pyzxvq').textContent=t<6500?'載入中':'$2,636';
+  doc.querySelector('h1').textContent='Banner title '+t;
+ });
+ assert.equal(c.unit_price_minor,263600);assert.equal(h.time(),7700);
+});
+test('a permanently unreadable price has a price-specific diagnosis',async()=>{
+ const h=readinessHarness();await assert.rejects(h.wait(doc=>{doc.querySelector('.pyzxvq').textContent='$841 - $2,636';}),/明確單價/);
+ assert.ok(h.time()<=12100);
+});
+test('an unsuccessful SKU selection is distinguished from page animation',async()=>{
+ const h=readinessHarness();await assert.rejects(h.wait(doc=>doc.querySelector('.selection-box-selected')?.classList.replace('selection-box-selected','selection-box-unselected')),/尚未在蝦皮選取成功/);
+});
+test('an unsuccessful quantity update is reported separately',async()=>{
+ const h=readinessHarness();await assert.rejects(h.wait(()=>{},{quantity:2}),/數量尚未/);
+});
+test('shipping restrictions remain a blocking condition',async()=>{
+ const h=readinessHarness();const p=h.d.window.document.createElement('p');p.textContent='您選擇的門市或預設地址暫不適用此物流選項';h.d.window.document.getElementById('product').appendChild(p);
+ await assert.rejects(h.wait(),/不適用配送/);
+});
+test('changing price resets the stability period and reports the changing field',async()=>{
+ const h=readinessHarness();await assert.rejects(h.wait((doc,t)=>{doc.querySelector('.pyzxvq').textContent='$'+(2000+t);}),/單價仍在更新/);
+});
+test('command expiry stops waiting without a purchase',async()=>{
+ const h=readinessHarness();await assert.rejects(h.wait(()=>{},{expires_unix_ms:500}),/操作逾時/);assert.equal(h.time(),500);
+});
+test('product handler dispatches direct-buy once after readiness and never final order',async()=>{
+ const h=readinessHarness(),w=h.d.window,doc=w.document;let listener,buy=0,final=0,queued=[];
+ w.chrome={runtime:{id:'fixture',onMessage:{addListener:fn=>{listener=fn;}}}};
+ doc.getElementById('buy').onclick=()=>buy++;doc.getElementById('final').onclick=()=>final++;
+ w.ShoppeeReadiness.wait=()=>h.wait();w.setTimeout=fn=>{queued.push(fn);};
+ w.eval(fs.readFileSync('companion-extension/product.js','utf8'));
+ const result=await new Promise(resolve=>listener({type:'PRODUCT_COMMAND',command:{...command(),kind:'checkout',expires_unix_ms:Date.now()+60000}},{id:'fixture'},resolve));
+ assert.equal(result.error,undefined);assert.equal(result.outcome.dispatched,true);assert.equal(buy,0);assert.equal(queued.length,1);
+ queued[0]();assert.equal(buy,1);assert.equal(final,0);w.close();
 });

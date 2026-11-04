@@ -2,17 +2,10 @@
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function current(){return ShoppeeDom.page(document,location.href);}
 async function settled(command){
-  let previous='',stable=0,result;
-  for(let i=0;i<50;i++){
-    if(Date.now()>command.expires_unix_ms)throw new Error('操作逾時，請重新開始。');
-    result=current();const key=JSON.stringify(result);
-    stable=key===previous?stable+1:0;previous=key;
-    // Do not act on transient loading prices. Require stable DOM and all choices.
-    const chosen=command.kind==='inspect'||command.selections.every(s=>result.groups.some(g=>g.name===s.group&&g.options.some(o=>o.label===s.option&&o.selected)));
-    if(stable>=12&&chosen&&(command.kind==='inspect'||result.unit_price_minor!==null))return result;
-    await delay(100);
-  }
-  throw new Error('商品頁仍在變動，停止操作；請確認價格與規格後重新讀取。');
+  return ShoppeeReadiness.wait(current,command,()=>{
+    const inputs=[...document.querySelectorAll('input[role="spinbutton"]')];
+    return inputs.length===1?Number(inputs[0].value):null;
+  });
 }
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(sender.id!==chrome.runtime.id||message.type!=='PRODUCT_COMMAND')return false;

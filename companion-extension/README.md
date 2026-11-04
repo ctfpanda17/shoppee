@@ -1,4 +1,9 @@
-# Shoppee Local Companion v0.3.0
+# Shoppee Local Companion v0.3.1
+
+Updating from v0.3.0: reload the extension from the new release folder, refresh
+both Shopee and local UI tabs, then reconnect. The adapter now allows up to 12
+seconds for purchase data to stabilize (still 1.2 seconds stable), diagnoses
+missing price, selection and quantity separately, and ignores title animations.
 
 This unpacked Chrome / Edge extension runs with your existing browser login.
 It reads rendered product controls and can select options/quantity and click
