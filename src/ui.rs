@@ -391,7 +391,7 @@ async fn execute(app: App, id: u64, req: StartRequest, product: ShopeeProduct) -
         app.update(
             id,
             "browser_checkout",
-            "正在選取規格、檢查商品小計與配送；只前往結帳，不送出訂單",
+            "正在選取規格、檢查商品小計與配送，並核對購物車前往結帳；不送出訂單",
         )
         .await;
         let result = app

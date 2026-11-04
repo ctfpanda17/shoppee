@@ -1,4 +1,5 @@
 'use strict';
+importScripts('flow.js');
 const pending=new Map();
 function local(sender){try{const u=new URL(sender.tab.url);return sender.frameId===0&&u.protocol==='http:'&&u.hostname==='127.0.0.1';}catch{return false;}}
 function valid(command){
@@ -32,15 +33,8 @@ async function execute(sender,command){
   if(result.error)throw new Error(result.error);
   if(command.kind==='checkout'){
     if(!result.outcome?.dispatched)throw new Error('購買入口未派發。');
-    for(let i=0;i<75;i++){
-      const current=await chrome.tabs.get(tab.id);const path=new URL(current.url).pathname;
-      if(path==='/checkout'||path.startsWith('/checkout/')){
-        delete result.outcome.dispatched;result.outcome.checkout_opened=true;return result.outcome;
-      }
-      if(path.startsWith('/verify/')||path.startsWith('/buyer/'))throw new Error('網站要求驗證或重新登入，已停止操作。');
-      await new Promise(resolve=>setTimeout(resolve,200));
-    }
-    throw new Error('沒有確認進入結帳頁，請檢查商品分頁；程式不會重送購買。');
+    await ShoppeeFlow.checkout(chrome.tabs,tab.id,command,result.outcome.catalog);
+    delete result.outcome.dispatched;result.outcome.checkout_opened=true;return result.outcome;
   }
   return result.outcome;
 }

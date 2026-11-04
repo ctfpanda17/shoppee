@@ -108,7 +108,7 @@ function render(data) {
   $('status-pill').className='status-pill'+(run?' running':done?' success':j.phase==='failed'?' failed':'');
   $('settings').disabled=!!run;$('start-button').disabled=!online||!!run||submitting;$('stop-button').disabled=!online||!run;
   if(j.mode && run) setMode(j.mode);
-  $('progress-mid').textContent=j.mode==='mock'?'監測商品':j.mode==='browser'?'選規格與檢查':'等待啟動';$('progress-end').textContent=j.mode==='mock'?'確認模擬報價':j.mode==='browser'?'結帳待確認':'開啟商品頁';
+  $('progress-mid').textContent=j.mode==='mock'?'監測商品':j.mode==='browser'?'核對商品與購物車':'等待啟動';$('progress-end').textContent=j.mode==='mock'?'確認模擬報價':j.mode==='browser'?'結帳待確認':'開啟商品頁';
   $('progress-1').className='progress-step'+(j.phase!=='idle'?' done':'');
   $('progress-2').className='progress-step'+(run?' current':done?' done':'');
   $('progress-3').className='progress-step'+(done?' done':'');

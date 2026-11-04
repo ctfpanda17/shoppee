@@ -1,4 +1,4 @@
-# Shoppee Local Companion v0.3.1
+# Shoppee Local Companion v0.3.2
 
 Updating from v0.3.0: reload the extension from the new release folder, refresh
 both Shopee and local UI tabs, then reconnect. The adapter now allows up to 12
@@ -31,3 +31,13 @@ Only public product data is returned to the local UI. Do not load this extension
 into an untrusted modified UI. This is a website-specific adapter, not an official
 Shopee SDK; DOM changes can require an update. Inspecting/selection were verified
 on the supplied FlashFire listing. End-to-end order placement is not implemented.
+
+
+v0.3.2 handles an intermediate /cart page automatically. It requires exactly
+one selected checkbox and one unambiguous target product row with the exact
+SKU, quantity, unit price and subtotal, plus a matching one-item cart total.
+It waits for stable data and clicks only 去買單 once, then verifies /checkout.
+Other selections (including aggregate checkboxes), duplicate target rows,
+modals and ambiguous data stop the task. It does not change cart selections.
+Tests use synthetic cart DOM based on the reported screenshot, not a captured
+live DOM. Real account checkout remains unverified. No final order is submitted.
