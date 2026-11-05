@@ -29,6 +29,54 @@ test('cart validates exact product/SKU/quantity/total and exposes only Go Checko
   const d=cart(),doc=d.window.document;let clicked=0;doc.getElementById('go').onclick=()=>clicked++;
   assert.equal(d.window.ShoppeeCart.prepare(doc,cmd(),263600).button.id,'go');assert.equal(clicked,0);
 });
+test('discount and shipping labels are not standalone unit-price cells',()=>{
+  const d=cart(),doc=d.window.document;
+  doc.getElementById('target').insertAdjacentHTML('beforeend','<p>已折 $54</p><p>滿 $0，宅配到府，免運費了</p>');
+  assert.equal(d.window.ShoppeeCart.prepare(doc,cmd(),263600).button.id,'go');
+});
+test('known discount labels can wrap a money element without hiding unknown charges',()=>{
+  const d=cart(),doc=d.window.document;doc.getElementById('target').insertAdjacentHTML('beforeend','<p>已折 <span>$54</span></p>');
+  assert.equal(d.window.ShoppeeCart.prepare(doc,cmd(),263600).button.id,'go');
+  doc.getElementById('target').insertAdjacentHTML('beforeend','<p>額外費用 $100</p>');
+  assert.throws(()=>d.window.ShoppeeCart.prepare(doc,cmd(),263600),/金額欄位不明確/);
+});
+test('inline unknown prices are not silently discarded beside two money cells',()=>{
+  const d=cart(),doc=d.window.document;doc.getElementById('target').insertAdjacentHTML('beforeend','<p>單價 $4,000 券後價</p>');
+  assert.throws(()=>d.window.ShoppeeCart.prepare(doc,cmd(),263600),error=>{
+    assert.match(error.message,/候選 3 筆/);assert.match(error.message,/NT\$4000\.00/);return true;
+  });
+});
+test('crossed-out original prices and hidden money do not add price candidates',()=>{
+  for(const extra of ['<del>$3,000</del>','<span style="text-decoration:line-through">$3,000</span>','<span hidden>$3,000</span>']){
+    const d=cart(),doc=d.window.document;doc.getElementById('unit').insertAdjacentHTML('beforebegin',extra);
+    assert.equal(d.window.ShoppeeCart.prepare(doc,cmd(),263600).button.id,'go');
+  }
+});
+test('a real price mismatch reports both compared values and budget',()=>{
+  const d=cart(),doc=d.window.document;doc.getElementById('unit').textContent='$2,637';doc.getElementById('line').textContent='$2,637';
+  assert.throws(()=>d.window.ShoppeeCart.prepare(doc,cmd(),263600),error=>{
+    assert.match(error.message,/單價與商品頁不同/);assert.match(error.message,/NT\$2636\.00/);assert.match(error.message,/NT\$2637\.00/);assert.match(error.message,/預算上限 NT\$3000\.00/);return true;
+  });
+});
+test('extra standalone money stays blocked and reports exact candidate count',()=>{
+  const d=cart(),doc=d.window.document;doc.getElementById('target').insertAdjacentHTML('beforeend','<span>$54</span>');
+  assert.throws(()=>d.window.ShoppeeCart.prepare(doc,cmd(),263600),error=>{
+    assert.match(error.message,/金額欄位不明確/);assert.match(error.message,/候選 3 筆/);assert.match(error.message,/NT\$54\.00/);return true;
+  });
+});
+test('text-only price labels retain strict fallback and nested money is counted once',()=>{
+  const d=cart(),doc=d.window.document;
+  doc.getElementById('unit').textContent='單價 $2,636 券後價';doc.getElementById('line').textContent='小計 $2,636';
+  assert.equal(d.window.ShoppeeCart.prepare(doc,cmd(),263600).button.id,'go');
+  doc.getElementById('unit').innerHTML='<span><b>$2,636</b></span>';doc.getElementById('line').innerHTML='<b>$2,636</b>';
+  assert.equal(d.window.ShoppeeCart.prepare(doc,cmd(),263600).button.id,'go');
+});
+test('subtotal mismatch has a distinct diagnosis with the observed subtotal',()=>{
+  const d=cart(),doc=d.window.document;doc.getElementById('line').textContent='$2,635';
+  assert.throws(()=>d.window.ShoppeeCart.prepare(doc,cmd(),263600),error=>{
+    assert.match(error.message,/小計與單價乘數量不符/);assert.match(error.message,/NT\$2635\.00/);return true;
+  });
+});
 test('other selected goods and inconsistent select-all state block cart transition',()=>{
   for(const id of ['other-check','all']){
     const d=cart(),doc=d.window.document;doc.getElementById(id).checked=true;

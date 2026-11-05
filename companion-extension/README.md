@@ -1,4 +1,4 @@
-# Shoppee Local Companion v0.3.3
+# Shoppee Local Companion v0.3.4
 
 Updating from v0.3.0: reload the extension from the new release folder, refresh
 both Shopee and local UI tabs, then reconnect. The adapter now allows up to 12
@@ -50,3 +50,16 @@ are accepted as aggregates only when their containing product rows can be
 identified and their scope has no unaccounted product links; checked aggregates
 must agree with those item states. Other selected goods, unknown controls and
 the one-item footer total remain guarded. Reload both tabs after updating.
+
+
+v0.3.4 prefers standalone rendered money elements in the target item row,
+excluding hidden and crossed-out originals. Inline discount/shipping labels do
+not become extra unit-price cells. Ambiguous extra monetary elements still stop
+the task. Price failures include the compared product-page price, observed cart
+candidates, quantity, cap and extraction source in the UI log/export. A failed
+job's browser_catalog may still be the initial inspection catalog; its null
+price is not evidence of a changed checkout price. Strict price equality,
+quantity, subtotal and budget checks remain enabled.
+
+When loading a new release folder, disable/remove older Companion copies first.
+Keep one extension active, then refresh both Shopee and local UI tabs.

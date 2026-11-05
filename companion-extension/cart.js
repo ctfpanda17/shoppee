@@ -51,6 +51,51 @@
     const amount=Number(m[1].replaceAll(',',''))*100+Number((m[2]||'').padEnd(2,'0'));
     return Number.isSafeInteger(amount)?amount:null;
   }
+  function struck(el,row){
+    for(let p=el;p;p=p.parentElement){
+      const style=p.ownerDocument.defaultView.getComputedStyle(p);
+      if(p.matches('del,s,strike')||`${style.textDecorationLine} ${style.textDecoration}`.includes('line-through'))return true;
+      if(p===row)break;
+    }
+    return false;
+  }
+  function rowPrices(row){
+    // Read standalone rendered price elements before scanning row text.
+    // A label such as "已折 $54" or "滿 $0" is not a unit-price cell.
+    function knownLabel(el){
+      if(el.querySelector('input,button,a'))return false;
+      const value=text(el).replace(/\s+/g,' ');
+      return /^已折\s*(?:NT\s*\$|\$)\s*[\d,]+(?:\.\d{1,2})?$/.test(value)||/^滿\s*(?:NT\s*\$|\$)\s*[\d,]+(?:\.\d{1,2})?\s*[,，].*(?:免運|運費|宅配).*$/.test(value);
+    }
+    function inLabel(el){
+      for(let p=el;p&&p!==row;p=p.parentElement)if(knownLabel(p))return true;
+      return false;
+    }
+    const cells=[...row.querySelectorAll('*')].filter(el=>visible(el)&&!struck(el,row)&&!inLabel(el)&&money(text(el))!==null);
+    const leaves=cells.filter(el=>!cells.some(other=>other!==el&&el.contains(other)));
+    function remainingValues(omit=[]){
+      const parts=[];
+      function visit(el){
+        if(omit.includes(el)||!visible(el)||struck(el,row)||knownLabel(el))return;
+        for(const child of el.childNodes){
+          if(child.nodeType===3)parts.push(child.textContent);
+          else if(child.nodeType===1)visit(child);
+        }
+      }
+      visit(row);
+      return (parts.join(' ').match(/(?:NT\s*\$|\$)\s*[\d,]+(?:\.\d{1,2})?/g)||[]).map(money);
+    }
+    if(leaves.length>=2){
+      const extra=remainingValues(leaves);
+      return {values:[...leaves.map(el=>money(text(el))),...extra],source:extra.length?'獨立金額欄位與未分類金額':'獨立金額欄位'};
+    }
+    return {values:remainingValues(),source:'可見文字'};
+  }
+  const displayMoney=value=>Number.isSafeInteger(value)?`NT$${(value/100).toFixed(2)}`:'無法讀取';
+  function priceDetails(command,expectedPrice,prices,source){
+    const values=prices.slice(0,6).map(displayMoney).join('、')||'無';
+    return `商品頁單價 ${displayMoney(expectedPrice)}；購物車候選 ${prices.length} 筆 [${values}]；數量 ${command.quantity}；預算上限 ${displayMoney(command.max_price_minor)}；來源：${source}。`;
+  }
   function itemRows(doc){
     const rows=new Map();
     for(const link of [...doc.querySelectorAll('a[href]')].filter(a=>visible(a)&&canonical(a.getAttribute('href')))){
@@ -105,9 +150,11 @@
       const matches=[...row.querySelectorAll('*')].some(el=>normalize(text(el)).replace(/^規格[:：]?/,'')===expected);
       if(!matches)throw new Error('購物車規格與任務不符或無法核對，停止操作。');
     }
-    const prices=(text(row).match(/(?:NT\s*\$|\$)\s*[\d,]+(?:\.\d{1,2})?/g)||[]).map(money);
-    if(prices.length<2)throw loading('購物車尚未顯示明確單價與小計，請確認後重新讀取。');
-    if(prices.length!==2||prices.some(p=>p===null)||prices[0]!==expectedPrice||prices[1]!==expectedPrice*command.quantity)throw new Error('購物車單價／小計已變更或不明確，停止操作；請重新讀取商品。');
+    const extracted=rowPrices(row),prices=extracted.values,details=priceDetails(command,expectedPrice,prices,extracted.source);
+    if(prices.length<2)throw loading(`購物車尚未顯示明確單價與小計。${details}`);
+    if(prices.length!==2||prices.some(p=>p===null))throw new Error(`購物車金額欄位不明確，尚未點擊去買單。${details}`);
+    if(prices[0]!==expectedPrice)throw new Error(`購物車單價與商品頁不同，尚未點擊去買單。${details}`);
+    if(prices[1]!==prices[0]*command.quantity)throw new Error(`購物車小計與單價乘數量不符，尚未點擊去買單。${details}`);
     const totals=[...text(doc.body).matchAll(/總金額\s*[（(]\s*(\d+)\s*件商品\s*[）)]\s*[:：]?\s*((?:NT\s*\$|\$)\s*[\d,]+(?:\.\d{1,2})?)/g)];
     if(!totals.length)throw loading('購物車總金額尚未顯示或無法讀取，請確認後重新讀取。');
     if(totals.length!==1||Number(totals[0][1])!==1)throw new Error('無法確認購物車只有一項商品，停止操作。');
