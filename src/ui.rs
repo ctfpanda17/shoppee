@@ -1,5 +1,5 @@
 use crate::{
-    browser_bridge::{Broker, Catalog, Kind, Report, Selection},
+    browser_bridge::{Broker, CartSummary, Catalog, Kind, Report, Selection},
     client::{Api, Config},
     metrics::{summarize, Sample},
     mock::{self, MockConfig, MockState},
@@ -7,7 +7,7 @@ use crate::{
     product_url::{self, ShopeeProduct},
     schedule,
 };
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use axum::{
     extract::{DefaultBodyLimit, Request, State},
     http::{header, HeaderValue, Method, StatusCode},
@@ -48,6 +48,7 @@ pub struct Snapshot {
     pub samples: Vec<Sample>,
     pub request_count: usize,
     pub browser_catalog: Option<Catalog>,
+    pub browser_cart: Option<CartSummary>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct Log {
@@ -391,7 +392,7 @@ async fn execute(app: App, id: u64, req: StartRequest, product: ShopeeProduct) -
         app.update(
             id,
             "browser_checkout",
-            "正在選取規格、檢查商品小計與配送，並核對購物車前往結帳；不送出訂單",
+            "正在選取規格、數量與配送，依購物車總金額核對預算並前往結帳；不送出訂單",
         )
         .await;
         let result = app
@@ -404,16 +405,22 @@ async fn execute(app: App, id: u64, req: StartRequest, product: ShopeeProduct) -
                 req.max_price_minor,
             )
             .await?;
+        let total = result
+            .cart
+            .as_ref()
+            .context("缺少購物車總金額核對結果")?
+            .total_minor;
         {
             let mut inner = app.inner.lock().await;
             if inner.job.id == id {
                 inner.job.browser_catalog = Some(result.catalog);
+                inner.job.browser_cart = result.cart;
             }
         }
         app.update(
             id,
             "checkout_ready",
-            "已前往蝦皮結帳頁，請核對含運總額並親自確認下單與付款",
+            &format!("已核對購物車總金額 NT${}.{:02}，已前往蝦皮結帳頁；請核對含運總額並親自確認下單與付款", total / 100, total % 100),
         )
         .await;
         return Ok(());

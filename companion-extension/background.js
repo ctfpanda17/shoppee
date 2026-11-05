@@ -33,7 +33,7 @@ async function execute(sender,command){
   if(result.error)throw new Error(result.error);
   if(command.kind==='checkout'){
     if(!result.outcome?.dispatched)throw new Error('購買入口未派發。');
-    await ShoppeeFlow.checkout(chrome.tabs,tab.id,command,result.outcome.catalog);
+    result.outcome.cart=await ShoppeeFlow.checkout(chrome.tabs,tab.id,command);
     delete result.outcome.dispatched;result.outcome.checkout_opened=true;return result.outcome;
   }
   return result.outcome;

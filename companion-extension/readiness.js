@@ -11,13 +11,12 @@
       if(!o||o.disabled)return `規格「${s.option}」不存在或已停用，請重新讀取。`;
       if(!o.selected||g.options.filter(o=>o.selected).length!==1)return `規格「${s.option}」尚未在蝦皮選取成功，請檢查商品分頁後重新讀取。`;
     }
-    if(!Number.isSafeInteger(c.unit_price_minor)||c.unit_price_minor<=0)return '無法讀取所選規格的明確單價，請確認商品分頁已顯示單一價格後重新讀取。';
     if(quantity!==command.quantity)return '蝦皮數量尚未與任務一致，請檢查數量欄位後重新開始。';
     return '';
   }
-  function state(c,quantity){
+  function state(c,quantity,kind){
     // Animated banners, title changes and unrelated page content are not prices.
-    return {groups:c.groups,unit_price_minor:c.unit_price_minor,stock:c.stock,shipping_blocked:c.shipping_blocked,quantity};
+    return {groups:c.groups,unit_price_minor:kind==='inspect'?c.unit_price_minor:null,stock:c.stock,shipping_blocked:c.shipping_blocked,quantity};
   }
   async function wait(read,command,readQuantity,options={}){
     const now=options.now||Date.now,sleep=options.sleep||(ms=>new Promise(r=>setTimeout(r,ms)));
@@ -26,7 +25,7 @@
     while(now()-started<=timeout){
       if(now()>=command.expires_unix_ms)throw new Error('操作逾時，請重新開始。');
       const c=read(),quantity=command.kind==='inspect'?null:readQuantity();
-      const next=state(c,quantity),key=JSON.stringify(next);
+      const next=state(c,quantity,command.kind),key=JSON.stringify(next);
       if(!previous||key!==JSON.stringify(previous)){
         if(previous)changed=Object.keys(next).filter(k=>JSON.stringify(next[k])!==JSON.stringify(previous[k]));
         previous=next;since=now();

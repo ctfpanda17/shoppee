@@ -18,6 +18,7 @@
     const priceEls=[...container.querySelectorAll('.pyzxvq')];
     let price=null;
     if(priceEls.length===1){const match=text(priceEls[0]).match(/^\$\s*([\d,]+)(?:\.(\d{1,2}))?$/);if(match)price=Number(match[1].replaceAll(',',''))*100+Number((match[2]||'').padEnd(2,'0'));}
+    if(!Number.isSafeInteger(price)||price<0||price>100_000_000_000)price=null;
     const quantitySection=[...container.querySelectorAll('section')].find(s=>text(s.querySelector('h2')||{})==='數量');
     const stockMatch=quantitySection&&text(quantitySection).match(/還剩\s*([\d,]+)\s*件/);
     return {canonical_url:`https://shopee.tw/product/${m[1]}/${m[2]}`,title:text(h),groups,unit_price_minor:price,stock:stockMatch?Number(stockMatch[1].replaceAll(',','')):null,shipping_blocked:text(container).includes('您選擇的門市或預設地址暫不適用此物流選項')};
@@ -35,7 +36,7 @@
     if(catalog.shipping_blocked)throw new Error('目前預設地址／門市不適用配送，請在蝦皮修改後重新讀取。');
     if(catalog.groups.length!==command.selections.length)throw new Error('尚未選擇所有規格。');
     for(const group of catalog.groups){const selected=command.selections.filter(s=>s.group===group.name);if(selected.length!==1||group.options.filter(o=>o.selected).length!==1||!group.options.some(o=>o.label===selected[0].option&&o.selected&&!o.disabled))throw new Error('頁面實際選取的規格與任務不符。');}
-    if(!Number.isSafeInteger(catalog.unit_price_minor)||catalog.unit_price_minor<=0||!Number.isSafeInteger(command.max_price_minor)||catalog.unit_price_minor*command.quantity>command.max_price_minor)throw new Error('無法確認價格或商品小計超過預算。');
+    if(!Number.isSafeInteger(command.max_price_minor)||command.max_price_minor<=0)throw new Error('預算上限無效。');
     if(catalog.stock!==null&&catalog.stock<command.quantity)throw new Error('庫存不足。');
     const inputs=[...doc.querySelectorAll('input[role="spinbutton"]')];
     if(inputs.length!==1||Number(inputs[0].value)!==command.quantity)throw new Error('數量未與任務一致。');

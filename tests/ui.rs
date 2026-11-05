@@ -317,8 +317,14 @@ async fn browser_ui_binds_real_options_and_finishes_at_checkout_without_payment(
         .unwrap();
     assert_eq!(lease["command"]["kind"], "checkout");
     assert_eq!(lease["command"]["quantity"], 2);
-    s.post("/api/browser/report",json!({"command_id":lease["command"]["id"],"outcome":{"catalog":browser_catalog(false),"checkout_opened":true,"payment_sent":false},"error":null})).await.error_for_status().unwrap();
+    s.post("/api/browser/report",json!({"command_id":lease["command"]["id"],"outcome":{"catalog":browser_catalog(false),"checkout_opened":true,"payment_sent":false,"cart":{"total_minor":19999,"quantity":2,"item_count":1}},"error":null})).await.error_for_status().unwrap();
     let state = s.wait("checkout_ready").await;
+    assert_eq!(state["job"]["browser_cart"]["total_minor"], 19999);
+    assert_eq!(
+        s.get("/api/export").await.json::<Value>().await.unwrap()["job"]["browser_cart"]
+            ["quantity"],
+        2
+    );
     assert_eq!(
         s.post("/api/confirm", json!({"id":state["job"]["id"]}))
             .await

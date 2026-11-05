@@ -29,7 +29,7 @@ function setMode(value) {
   for(const input of $('mock-settings').querySelectorAll('input'))input.disabled=value!=='mock';
   for(const input of $('browser-settings').querySelectorAll('input,select'))input.disabled=value!=='browser';
   $('start-label').textContent=value==='mock'?'開始本機模擬':value==='browser'?'選規格並自動前往結帳':'建立開啟任務';
-  $('mode-description').textContent=value==='browser'?'預算限制商品小計（單價 × 數量），不含運費；含運總額請在蝦皮結帳確認。':value==='mock'?'預算會用於檢查模擬報價；所有監測請求都只送往本機。':'預算僅用於任務備註；正式價格與總額請在蝦皮確認。';
+  $('mode-description').textContent=value==='browser'?'依購物車底部「總金額」判斷預算；結帳頁的運費與最終應付總額仍由你確認。':value==='mock'?'預算會用於檢查模擬報價；所有監測請求都只送往本機。':'預算僅用於任務備註；正式價格與總額請在蝦皮確認。';
   $('form-footnote').textContent=value==='browser'?'會操作登入中的蝦皮商品分頁；最終下單與付款由你確認。':value==='mock'?'模擬商品不代表真實商品，不會建立訂單或付款。':'不會自動下單或付款，不需要輸入蝦皮帳密。';
   error('');
 }
@@ -125,7 +125,7 @@ function render(data) {
       const row=document.createElement('div');row.className='log-row';const time=document.createElement('time');time.textContent=new Date(entry.at_unix_ms).toLocaleTimeString('zh-TW',{hour12:false});const dot=document.createElement('span');dot.className='log-dot';const message=document.createElement('span');message.textContent=entry.message;row.append(time,dot,message);$('log-list').appendChild(row);
     }}
   }
-  renderCatalog(j.browser_catalog);
+  renderCatalog(j.browser_catalog,j.browser_cart);
   renderClock();
 }
 async function poll() {
@@ -147,13 +147,13 @@ $('read-browser').addEventListener('click',async()=>{
     await api('/api/browser/inspect',{url:$('product-url').value.trim()});await poll();
   }catch(e){error(e.message);}
 });
-function renderCatalog(catalog){
+function renderCatalog(catalog,cart){
   const key=JSON.stringify(catalog);
-  if(key===catalogKey)return;catalogKey=key;
-  $('variant-fields').replaceChildren();
-  if(!catalog){$('catalog-info').textContent='讀取後才會顯示真實規格，不會根據網址猜測。';return;}
-  const price=Number.isSafeInteger(catalog.unit_price_minor)&&catalog.unit_price_minor>0?`；目前頁面單價 NT$${(catalog.unit_price_minor/100).toLocaleString('zh-TW')}`:'；尚未讀到明確單價，請在商品分頁選好規格並確認單一價格後重新讀取';
-  $('catalog-info').textContent=catalog.title+price+(catalog.shipping_blocked?'；目前配送不可用，請先在蝦皮處理後重新讀取。':'；資料為最近一次讀取結果，執行前會再檢查。');
+  if(!catalog){catalogKey=key;$('variant-fields').replaceChildren();$('catalog-info').textContent='讀取後才會顯示真實規格，不會根據網址猜測。';return;}
+  const price=Number.isSafeInteger(catalog.unit_price_minor)&&catalog.unit_price_minor>=0?`；商品頁參考單價 NT$${(catalog.unit_price_minor/100).toLocaleString('zh-TW')}`:'；商品頁無單一參考價，以購物車總金額核對預算';
+  const checked=cart?`；已核對購物車總金額 NT$${(cart.total_minor/100).toLocaleString('zh-TW')}`:'；尚未核對購物車總金額';
+  $('catalog-info').textContent=catalog.title+price+checked+(catalog.shipping_blocked?'；目前配送不可用，請先在蝦皮處理後重新讀取。':'；資料為最近一次讀取結果，執行前會再檢查。');
+  if(key===catalogKey)return;catalogKey=key;$('variant-fields').replaceChildren();
   for(const group of catalog.groups){
     const label=document.createElement('label'),select=document.createElement('select');
     select.id='variant-'+$('variant-fields').childElementCount;select.dataset.group=group.name;label.htmlFor=select.id;label.textContent=group.name;

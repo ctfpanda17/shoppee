@@ -59,7 +59,7 @@ Linux: x86_64, glibc 2.35+ (built on Ubuntu 22.04).
 macOS: Apple Silicon, macOS 11+; the binary is not notarized.
 
 Browser mode uses rendered Shopee product controls to select options and go to
-checkout; shipping errors, disabled options and budget violations stop the task.
+checkout; shipping errors, disabled options and an over-budget/unknown cart footer total stop the task.
 No final order or payment is submitted. No passwords/cookies leave your browser.
 Page-only mode and local mock mode remain available. Mock prices are not real
 product prices. Existing performance reports remain the v0.1.0 baseline.

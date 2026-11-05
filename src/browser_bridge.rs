@@ -70,8 +70,7 @@ impl Catalog {
             }
         }
         ensure!(
-            self.unit_price_minor
-                .is_none_or(|p| p > 0 && p <= 100_000_000_000),
+            self.unit_price_minor.is_none_or(|p| p <= 100_000_000_000),
             "價格資料無效"
         );
         Ok(())
@@ -117,6 +116,14 @@ pub struct Outcome {
     pub catalog: Catalog,
     pub checkout_opened: bool,
     pub payment_sent: bool,
+    pub cart: Option<CartSummary>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CartSummary {
+    pub total_minor: u64,
+    pub quantity: u32,
+    pub item_count: u32,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -234,13 +241,19 @@ impl Broker {
                                 && g.options.iter().any(|o| o.label == s.option && o.selected))),
                         "實際規格未與設定一致"
                     );
-                    let total = outcome
-                        .catalog
-                        .unit_price_minor
-                        .context("無法驗證價格")?
-                        .checked_mul(u64::from(p.command.quantity))
-                        .context("商品小計超出範圍")?;
-                    ensure!(total <= p.command.max_price_minor, "商品小計超過預算");
+                    let cart = outcome
+                        .cart
+                        .as_ref()
+                        .context("缺少購物車總金額核對結果，請更新擴充功能並重新整理蝦皮分頁")?;
+                    ensure!(cart.quantity == p.command.quantity, "購物車數量與任務不符");
+                    ensure!(
+                        cart.item_count == 1 || cart.item_count == p.command.quantity,
+                        "購物車商品件數與任務不符"
+                    );
+                    ensure!(
+                        cart.total_minor <= p.command.max_price_minor,
+                        "購物車總金額超過預算"
+                    );
                     ensure!(
                         outcome
                             .catalog
