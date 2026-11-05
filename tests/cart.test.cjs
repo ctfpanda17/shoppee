@@ -29,11 +29,58 @@ test('cart validates exact product/SKU/quantity/total and exposes only Go Checko
   const d=cart(),doc=d.window.document;let clicked=0;doc.getElementById('go').onclick=()=>clicked++;
   assert.equal(d.window.ShoppeeCart.prepare(doc,cmd(),263600).button.id,'go');assert.equal(clicked,0);
 });
-test('other selected goods and aggregate checkboxes block cart transition',()=>{
+test('other selected goods and inconsistent select-all state block cart transition',()=>{
   for(const id of ['other-check','all']){
     const d=cart(),doc=d.window.document;doc.getElementById(id).checked=true;
     assert.throws(()=>d.window.ShoppeeCart.prepare(doc,cmd(),263600),/其他勾選/);
   }
+});
+function frameworkBox(doc,id,selected=true){
+  const box=doc.getElementById(id);box.removeAttribute('aria-checked');
+  box.className='stardust-checkbox'+(selected?' stardust-checkbox--checked':'');
+  box.innerHTML='<input type="checkbox" class="stardust-checkbox__input" style="display:none"><span class="stardust-checkbox__box"></span>';
+  return box;
+}
+function shopHeader(d){
+  const doc=d.window.document,shop=doc.createElement('section'),header=doc.createElement('header'),box=doc.createElement('div');
+  const row=doc.getElementById('target');row.before(shop);box.id='shop-selected';header.appendChild(box);shop.append(header,row);
+  frameworkBox(doc,'selected');frameworkBox(doc,'shop-selected');return shop;
+}
+test('rendered framework selection is read even when backing input stays unchecked',()=>{
+  const d=cart(),doc=d.window.document,box=frameworkBox(doc,'selected');
+  assert.equal(box.querySelector('input').checked,false);
+  assert.equal(d.window.ShoppeeCart.prepare(doc,cmd(),263600).button.id,'go');
+});
+test('ARIA-owned checkbox is not overridden by an unchecked backing input',()=>{
+  const d=cart(),doc=d.window.document;doc.getElementById('selected').innerHTML='<input type="checkbox" style="display:none">';
+  assert.equal(d.window.ShoppeeCart.prepare(doc,cmd(),263600).button.id,'go');
+});
+test('an unchecked rendered framework checkbox is not overridden by a checked input',()=>{
+  const d=cart(),doc=d.window.document,box=frameworkBox(doc,'selected',false);box.querySelector('input').checked=true;
+  assert.throws(()=>d.window.ShoppeeCart.prepare(doc,cmd(),263600),/尚未勾選/);
+});
+test('shop header plus its one selected product is one purchase, not two',async()=>{
+  const d=cart(),doc=d.window.document;shopHeader(d);let time=0,go=0,final=0;
+  doc.getElementById('go').onclick=()=>go++;doc.getElementById('final').onclick=()=>final++;
+  await d.window.ShoppeeCart.dispatch(doc,cmd(),263600,{now:()=>time,sleep:async ms=>{time+=ms;}});
+  assert.equal(go,1);assert.equal(final,0);
+});
+test('a store header cannot hide a second selected item even with stale one-item total',()=>{
+  const d=cart(),doc=d.window.document,shop=shopHeader(d);shop.appendChild(doc.getElementById('other'));doc.getElementById('other-check').checked=true;
+  assert.throws(()=>d.window.ShoppeeCart.prepare(doc,cmd(),263600),/其他勾選/);
+});
+test('unknown selected product rows and contradictory rendered state stay blocked',()=>{
+  const d=cart(),doc=d.window.document,shop=shopHeader(d),other=doc.getElementById('other');
+  shop.appendChild(other);other.querySelector('input[type="text"]').remove();doc.getElementById('other-check').checked=true;
+  assert.throws(()=>d.window.ShoppeeCart.prepare(doc,cmd(),263600),/其他勾選/);
+  const e=cart(),box=frameworkBox(e.window.document,'selected');box.setAttribute('aria-checked','false');
+  assert.throws(()=>e.window.ShoppeeCart.prepare(e.window.document,cmd(),263600),/尚未同步/);
+});
+test('delayed visual checkbox state waits before proceeding',async()=>{
+  const d=cart(),doc=d.window.document,box=frameworkBox(doc,'selected',false);let time=0,go=0;
+  doc.getElementById('go').onclick=()=>go++;
+  await d.window.ShoppeeCart.dispatch(doc,cmd(),263600,{now:()=>time,sleep:async ms=>{time+=ms;if(time>=500)box.classList.add('stardust-checkbox--checked');}});
+  assert.equal(time,1700);assert.equal(go,1);
 });
 test('wrong SKU, wrong quantity, changed price, cap and footer count stop',()=>{
   const cases=[

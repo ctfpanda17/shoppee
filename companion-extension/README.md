@@ -1,4 +1,4 @@
-# Shoppee Local Companion v0.3.2
+# Shoppee Local Companion v0.3.3
 
 Updating from v0.3.0: reload the extension from the new release folder, refresh
 both Shopee and local UI tabs, then reconnect. The adapter now allows up to 12
@@ -37,7 +37,16 @@ v0.3.2 handles an intermediate /cart page automatically. It requires exactly
 one selected checkbox and one unambiguous target product row with the exact
 SKU, quantity, unit price and subtotal, plus a matching one-item cart total.
 It waits for stable data and clicks only 去買單 once, then verifies /checkout.
-Other selections (including aggregate checkboxes), duplicate target rows,
+Other selected items, unknown checkbox scopes, duplicate target rows,
 modals and ambiguous data stop the task. It does not change cart selections.
 Tests use synthetic cart DOM based on the reported screenshot, not a captured
 live DOM. Real account checkout remains unverified. No final order is submitted.
+
+
+v0.3.3 reads the rendered Stardust/ARIA checkbox state before a backing native
+input. A checked framework wrapper can legitimately have an unchecked backing
+input. Conflicting rendered/ARIA states remain blocked. Shop/cart header controls
+are accepted as aggregates only when their containing product rows can be
+identified and their scope has no unaccounted product links; checked aggregates
+must agree with those item states. Other selected goods, unknown controls and
+the one-item footer total remain guarded. Reload both tabs after updating.
