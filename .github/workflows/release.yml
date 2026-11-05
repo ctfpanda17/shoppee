@@ -1,0 +1,159 @@
+name: Release
+on:
+  push:
+    branches:
+      - 'release/v*'
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        if: runner.os == 'Linux'
+        with:
+          node-version: "22"
+      - name: Validate source
+        if: runner.os == 'Linux'
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          cargo fmt --all --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --all-targets
+      - name: Build release binary
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Smoke test native binary
+        if: runner.os != 'macOS' || runner.arch == 'ARM64'
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          executable="target/$BUILD_TARGET/release/shoppee-core"
+          if [ "$RUNNER_OS" = "Windows" ]; then executable="$executable.exe"; fi
+          "$executable" --version
+          "$executable" --help
+      - name: Package
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_PLATFORM: ${{ matrix.platform }}
+        run: python scripts/package_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-x86_64'
+          path: dist
+          merge-multiple: true
+      - name: Publish verified release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME##*/}"
+          python - "$tag" <<'PY'
+          import hashlib, pathlib, sys, tomllib
+          version = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['package']['version']
+          assert sys.argv[1] == 'v' + version, 'Release branch must match Cargo version'
+          files = sorted(pathlib.Path('dist').glob('*.zip'))
+          expected = {f'shoppee-core-v{version}-{p}.zip' for p in ('linux-x86_64','windows-x86_64')}
+          assert {p.name for p in files} == expected, 'Missing or unexpected release assets'
+          pathlib.Path('dist/SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in files))
+          PY
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "shoppee-core $tag" --notes-file RELEASE_NOTES.md --draft
+          gh release edit "$tag" --draft=false --latest
+  build-macos:
+    # macOS runner queues must not prevent Windows/Linux downloads.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Build and package macOS
+        env:
+          BUILD_TARGET: aarch64-apple-darwin
+          BUILD_PLATFORM: macos-arm64
+        run: |
+          cargo build --locked --release --target "$BUILD_TARGET"
+          if [ "$RUNNER_ARCH" = "ARM64" ]; then target/$BUILD_TARGET/release/shoppee-core --version; fi
+          python scripts/package_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+  publish-macos:
+    needs: [build-macos, publish]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-arm64
+          path: mac-dist
+      - name: Attach macOS without changing latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME##*/}"
+          python - "$tag" <<'PY'
+          import hashlib, pathlib, sys, tomllib
+          version = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['package']['version']
+          assert sys.argv[1] == 'v' + version
+          files = list(pathlib.Path('mac-dist').glob('*.zip'))
+          assert len(files) == 1 and files[0].name == f'shoppee-core-v{version}-macos-arm64.zip'
+          p = files[0]
+          pathlib.Path('mac-dist/SHA256SUMS-macos.txt').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')
+          PY
+          gh release upload "$tag" mac-dist/*
